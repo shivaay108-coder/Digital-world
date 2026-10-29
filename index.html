@@ -1,0 +1,291 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Digital Survival World</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#06101e;color:white;font-family:Arial}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;
+justify-content:space-between;gap:6px;z-index:5;flex-wrap:wrap}
+.panel{background:#07192de8;border:1px solid #19bce5;border-radius:12px;
+padding:9px;font-size:13px}
+button{background:#087dba;color:white;border:1px solid #45d8ff;
+padding:11px;border-radius:10px;font-weight:bold}
+#menu{position:fixed;z-index:5;bottom:12px;left:10px;right:10px;
+display:flex;justify-content:center;gap:7px;flex-wrap:wrap}
+#msg{position:fixed;top:100px;left:50%;transform:translateX(-50%);
+background:#07192df0;padding:10px;border-radius:10px;z-index:6;
+text-align:center;max-width:90%;font-size:13px}
+#cross{position:fixed;left:50%;top:50%;color:#6ff;pointer-events:none}
+#help{position:fixed;left:10px;bottom:95px;background:#07192dcc;
+padding:8px;border-radius:8px;font-size:12px}
+</style>
+</head>
+<body>
+<div id="hud">
+ <div class="panel">🌐 DIGITAL WORLD</div>
+ <div class="panel">📶 <span id="data">1024</span> KB</div>
+ <div class="panel">🪙 <span id="coins">0</span></div>
+</div>
+
+<div id="msg">3D दुनिया में आपका स्वागत है! मिशन शुरू करें।</div>
+<div id="cross">+</div>
+<div id="help">PC: WASD + Mouse<br>Mobile: स्क्रीन drag करके camera घुमाएँ</div>
+
+<div id="menu">
+ <button onclick="startMission()">🎯 मिशन (50s)</button>
+ <button onclick="workTask()">💼 100 KB काम</button>
+ <button onclick="buyData()">📶 डेटा खरीदें</button>
+ <button onclick="toggleCamera()">🎥 Camera</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(() => {
+if (!window.THREE) {
+ document.getElementById('msg').textContent =
+ '3D engine load नहीं हुआ। Internet चालू करके पेज reload करें।';
+ return;
+}
+
+const $ = id => document.getElementById(id);
+let dataKB=1024, coins=0, mission=null, cameraMode=0;
+let lastTime=performance.now(), lastMissionSecond=0;
+let yaw=0, pitch=0.25, dragging=false, px=0, py=0;
+const keys={};
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x8bdcff);
+scene.fog=new THREE.Fog(0x8bdcff,45,150);
+
+const camera=new THREE.PerspectiveCamera(
+ 70,innerWidth/innerHeight,0.1,400);
+
+const renderer=new THREE.WebGLRenderer({antialias:false});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.shadowMap.enabled=false;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xbdefff,0x28415b,2));
+const sun=new THREE.DirectionalLight(0xffffff,2);
+sun.position.set(20,40,20);
+scene.add(sun);
+
+const mat=(color,roughness=0.8)=>new THREE.MeshStandardMaterial({
+ color,roughness
+});
+
+const grass=mat(0x319b69), road=mat(0x263a4d);
+const blue=mat(0x12cfff,0.35), gold=mat(0xffca44,0.4);
+const white=mat(0xdceeff), dark=mat(0x18324a);
+
+function box(x,y,z,w,h,d,material){
+ const mesh=new THREE.Mesh(
+  new THREE.BoxGeometry(w,h,d),material);
+ mesh.position.set(x,y,z);
+ scene.add(mesh);
+ return mesh;
+}
+
+// Large 3D island
+box(0,-0.7,0,130,1.4,130,grass);
+box(0,0.02,0,12,0.08,130,road);
+box(0,0.04,0,130,0.08,10,road);
+
+// Futuristic buildings
+for(let i=0;i<22;i++){
+ const x=(Math.random()-.5)*100;
+ const z=(Math.random()-.5)*100;
+ if(Math.abs(x)<13||Math.abs(z)<12)continue;
+ const h=4+Math.random()*12;
+ const building=box(x,h/2,z,5+Math.random()*4,h,
+ 5+Math.random()*4,dark);
+ box(x,h+0.12,z,building.geometry.parameters.width,0.2,
+ building.geometry.parameters.depth,blue);
+
+ for(let y=1.5;y<h-1;y+=2.5){
+  box(x,y,z+2.55,1.3,0.5,0.08,blue);
+ }
+}
+
+// Trees
+for(let i=0;i<35;i++){
+ const x=(Math.random()-.5)*110;
+ const z=(Math.random()-.5)*110;
+ if(Math.abs(x)<14||Math.abs(z)<14)continue;
+ box(x,1,z,0.7,2,0.7,mat(0x79512f));
+ const crown=new THREE.Mesh(
+  new THREE.ConeGeometry(2,4,5),mat(0x15b87a));
+ crown.position.set(x,3,z);
+ scene.add(crown);
+}
+
+// Data shop
+box(-8,1.4,-15,5,2.8,4,blue);
+box(-8,3,-15,5.4,0.3,4.4,gold);
+
+// Player
+const player=new THREE.Group();
+const body=new THREE.Mesh(
+ new THREE.BoxGeometry(0.8,1.3,0.5),blue);
+body.position.y=1.4;
+player.add(body);
+const head=new THREE.Mesh(
+ new THREE.SphereGeometry(0.35,10,8),white);
+head.position.y=2.3;
+player.add(head);
+const legs=[];
+for(let x of [-0.23,0.23]){
+ const leg=new THREE.Mesh(
+  new THREE.BoxGeometry(0.25,0.8,0.3),dark);
+ leg.position.set(x,0.55,0);
+ player.add(leg);legs.push(leg);
+}
+player.position.set(0,0,0);
+scene.add(player);
+
+// Mission marker
+const marker=new THREE.Mesh(
+ new THREE.TorusGeometry(2,0.2,6,20),gold);
+marker.rotation.x=Math.PI/2;
+marker.position.set(0,0.2,-20);
+scene.add(marker);
+
+function say(t){$('msg').textContent=t}
+function updateHUD(){
+ $('data').textContent=Math.max(0,Math.floor(dataKB));
+ $('coins').textContent=coins;
+}
+function spendData(n){
+ if(dataKB<n){
+  dataKB=0;
+  updateHUD();
+  say('डेटा खत्म! पहले डेटा खरीदें।');
+  return false;
+ }
+ dataKB-=n;
+ updateHUD();
+ return true;
+}
+
+// One KB per second of active survival
+function tick(dt){
+ if(dataKB>0){
+  dataKB=Math.max(0,dataKB-dt);
+  updateHUD();
+  if(dataKB===0)say('डेटा खत्म! डेटा शॉप से डेटा खरीदें।');
+ }
+ if(mission){
+  mission.left-=dt;
+  const remain=Math.max(0,Math.ceil(mission.left));
+  if(remain!==lastMissionSecond){
+   lastMissionSecond=remain;
+   say('मिशन जारी है: '+remain+' सेकंड बाकी');
+  }
+  if(mission.left<=0){
+   coins+=75;
+   mission=null;
+   updateHUD();
+   say('मिशन पूरा! +75 कॉइन मिले।');
+  }
+ }
+}
+
+window.startMission=function(){
+ if(mission){say('पहले मौजूदा मिशन पूरा करें।');return}
+ if(dataKB<50){say('मिशन के लिए कम से कम 50 KB डेटा चाहिए।');return}
+ mission={left:50};
+ lastMissionSecond=-1;
+ say('मिशन शुरू! 50 सेकंड तक दुनिया में सर्वाइव करें।');
+};
+
+window.workTask=function(){
+ if(dataKB<100){say('इस काम के लिए 100 KB डेटा चाहिए।');return}
+ if(!spendData(100))return;
+ coins+=150;
+ updateHUD();
+ say('100 KB वाला काम पूरा! +150 कॉइन मिले।');
+};
+
+window.buyData=function(){
+ if(coins<1){say('कॉइन नहीं हैं। काम या मिशन पूरा करें।');return}
+ const amount=Math.min(100,coins);
+ coins-=amount;
+ dataKB+=amount;
+ updateHUD();
+ say(amount+' KB डेटा खरीदा!');
+};
+
+window.toggleCamera=function(){
+ cameraMode=(cameraMode+1)%2;
+ say(cameraMode===0?'Third-person camera':'Closer camera');
+};
+
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+
+renderer.domElement.addEventListener('pointerdown',e=>{
+ dragging=true;px=e.clientX;py=e.clientY;
+ renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener('pointerup',()=>dragging=false);
+renderer.domElement.addEventListener('pointermove',e=>{
+ if(!dragging)return;
+ yaw-=(e.clientX-px)*0.006;
+ pitch=Math.max(-0.2,Math.min(0.9,
+  pitch+(e.clientY-py)*0.004));
+ px=e.clientX;py=e.clientY;
+});
+
+function animate(now){
+ requestAnimationFrame(animate);
+ const dt=Math.min((now-lastTime)/1000,0.1);
+ lastTime=now;
+ tick(dt);
+
+ const forward=(keys.w||keys.arrowup?1:0)-
+  (keys.s||keys.arrowdown?1:0);
+ const side=(keys.d||keys.arrowright?1:0)-
+  (keys.a||keys.arrowleft?1:0);
+
+ if(dataKB>0&&(forward||side)){
+  const speed=9*dt;
+  player.position.x+=
+   (Math.sin(yaw)*forward+Math.cos(yaw)*side)*speed;
+  player.position.z+=
+   (-Math.cos(yaw)*forward+Math.sin(yaw)*side)*speed;
+  player.position.x=THREE.MathUtils.clamp(player.position.x,-62,62);
+  player.position.z=THREE.MathUtils.clamp(player.position.z,-62,62);
+  player.rotation.y=yaw;
+ }
+
+ marker.rotation.z+=dt;
+ marker.position.y=0.3+Math.sin(now*0.002)*0.25;
+
+ const distance=cameraMode===0?10:5;
+ const target=new THREE.Vector3(
+  player.position.x+Math.sin(yaw)*distance,
+  player.position.y+4+pitch*3,
+  player.position.z+Math.cos(yaw)*distance
+ );
+ camera.position.lerp(target,0.12);
+ camera.lookAt(player.position.x,1.4,player.position.z);
+
+ renderer.render(scene,camera);
+}
+
+addEventListener('resize',()=>{
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+updateHUD();
+requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
