@@ -1,0 +1,585 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Digital Survival World</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#071522;color:#eafaff;font:14px Arial}
+button{border:1px solid #35d7f5;background:#102b40;color:white;
+padding:10px 12px;border-radius:11px;font-weight:bold;touch-action:manipulation}
+button:active{background:#087c9f}
+#hud{position:fixed;top:8px;left:8px;right:8px;display:flex;
+flex-wrap:wrap;gap:6px;z-index:3;pointer-events:none}
+.stat{background:#071725e8;border:1px solid #23677d;border-radius:10px;
+padding:8px;font-size:12px}
+#mission{position:fixed;top:77px;left:8px;max-width:230px;z-index:3;
+background:#071725e8;border:1px solid #237d98;border-radius:12px;padding:10px}
+#message{position:fixed;top:165px;left:50%;transform:translateX(-50%);
+width:max-content;max-width:90%;background:#092338ee;border:1px solid #2ab9df;
+border-radius:10px;padding:9px;z-index:4;text-align:center}
+#controls{position:fixed;bottom:12px;left:10px;right:10px;
+display:flex;justify-content:space-between;align-items:end;z-index:3;gap:8px}
+#stick{width:125px;height:125px;flex-shrink:0;border-radius:50%;
+background:#16394caa;border:2px solid #55cce8;position:relative;touch-action:none}
+#nub{width:47px;height:47px;position:absolute;left:37px;top:37px;
+border-radius:50%;background:#65d9f5aa;border:2px solid white}
+#actions{display:flex;flex-wrap:wrap;justify-content:end;gap:6px;max-width:65%}
+#interact{background:#056c87}
+#overlay{position:fixed;inset:0;background:#06131bf5;z-index:10;
+display:flex;align-items:center;justify-content:center;padding:20px}
+#card{max-width:420px;width:100%;max-height:85vh;overflow:auto;
+background:#0c2538;border:1px solid #36c6e8;border-radius:18px;padding:20px}
+#card h2{margin-top:0}
+#items{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.small{font-size:11px;color:#a5d4e4}
+.hidden{display:none!important}
+@media(max-width:420px){
+.stat{padding:6px;font-size:11px}
+#mission{top:70px;max-width:185px;font-size:12px}
+#message{top:151px}
+#stick{width:110px;height:110px}
+#nub{left:30px;top:30px}
+#actions{max-width:66%;gap:5px}
+button{padding:9px;font-size:12px}
+}
+</style>
+</head>
+<body>
+
+<div id="hud">
+ <div class="stat">📶 <span id="data">1024</span> KB</div>
+ <div class="stat">🪙 <span id="coins">0</span></div>
+ <div class="stat">🍔 <span id="food">100</span></div>
+ <div class="stat">💧 <span id="water">100</span></div>
+ <div class="stat">🏠 <span id="place">CITY</span></div>
+</div>
+
+<div id="mission">
+ <b>🌐 DIGITAL LIFE</b>
+ <div id="mt">मिशन चुनें</div>
+ <div id="progress">शहर में घूमकर काम करें।</div>
+</div>
+<div id="message">Digital City में आपका स्वागत है!</div>
+
+<div id="controls">
+ <div id="stick"><div id="nub"></div></div>
+ <div id="actions">
+  <button onclick="chooseMission()">🎯 मिशन</button>
+  <button onclick="interact()" id="interact">E / INTERACT</button>
+  <button onclick="jump()">⬆️ JUMP</button>
+  <button onclick="toggleRide()">🚲 RIDE</button>
+  <button onclick="toggleMenu()">📱 MENU</button>
+ </div>
+</div>
+
+<div id="overlay">
+ <div id="card">
+  <h2>🌆 DIGITAL SURVIVAL</h2>
+  <p>एक छोटी, detailed futuristic city में अपनी डिजिटल जिंदगी शुरू करें।</p>
+  <p>आपको काम करना होगा, कॉइन कमाने होंगे और डेटा खरीदना होगा।</p>
+  <p class="small">मोबाइल: बाईं तरफ जॉयस्टिक से चलें। स्क्रीन drag करके कैमरा घुमाएँ। बिल्डिंग या NPC के पास जाकर INTERACT दबाएँ।</p>
+  <button onclick="startGame()" style="width:100%">ENTER CITY</button>
+ </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $=id=>document.getElementById(id);
+let data=1024,coins=0,food=100,water=100;
+let running=false,inside=false,ride=false,jumping=0;
+let mission=null,missionTime=0,missionProgress=0;
+let totalDistance=0,rideSeconds=0,clock=0;
+let yaw=0,pitch=.25,last=performance.now();
+let moveX=0,moveY=0,drag=false,px=0,py=0;
+let saveTick=0;
+const keys={};
+const owned={house:false,car:false,bike:false};
+let inventory=['Phone'];
+const npcs=[],buildings=[],trees=[];
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x7fc7df);
+scene.fog=new THREE.Fog(0x7fc7df,38,105);
+const camera=new THREE.PerspectiveCamera(67,innerWidth/innerHeight,.1,180);
+const renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'low-power'});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.25));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xc9f4ff,0x26394c,2));
+const sun=new THREE.DirectionalLight(0xffffff,2.1);
+sun.position.set(15,30,10);scene.add(sun);
+
+const mat=(c,r=.8,m=0)=>new THREE.MeshStandardMaterial({
+ color:c,roughness:r,metalness:m
+});
+const grass=mat(0x427c67),asphalt=mat(0x263543),sidewalk=mat(0x657984);
+const blue=mat(0x12c9e9,.35,.3),glass=mat(0x20516c,.22,.4);
+const gold=mat(0xffc85a,.4,.2),white=mat(0xd7e9f3);
+const dark=mat(0x172b3c),green=mat(0x26815e);
+function box(parent,x,y,z,w,h,d,m){
+ const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);
+ o.position.set(x,y,z);parent.add(o);return o;
+}
+function label(text,x,y,z,color='#7cf3ff'){
+ const c=document.createElement('canvas');c.width=512;c.height=128;
+ const ctx=c.getContext('2d');
+ ctx.fillStyle='#071b2b';ctx.fillRect(0,0,512,128);
+ ctx.strokeStyle=color;ctx.lineWidth=5;ctx.strokeRect(3,3,506,122);
+ ctx.font='bold 43px Arial';ctx.fillStyle=color;ctx.textAlign='center';
+ ctx.fillText(text,256,80);
+ const tex=new THREE.CanvasTexture(c);
+ const mesh=new THREE.Mesh(new THREE.PlaneGeometry(6,1.5),
+ new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.DoubleSide}));
+ mesh.position.set(x,y,z);scene.add(mesh);return mesh;
+}
+
+// City ground and roads
+box(scene,0,-.65,0,100,1.3,100,grass);
+box(scene,0,-.01,0,10,.1,100,asphalt);
+box(scene,0,.0,0,100,.1,10,asphalt);
+for(let i=-45;i<=45;i+=5){
+ box(scene,i,.06,0,.12,.02,1.6,gold);
+ box(scene,0,.06,i,1.6,.02,.12,gold);
+}
+for(let s of [-7,7]){
+ box(scene,s,.02,0,1,.1,100,sidewalk);
+ box(scene,0,.02,s,100,.1,1,sidewalk);
+}
+
+// Detailed building with accessible door
+function building(name,x,z,w,d,h,color,kind){
+ const g=new THREE.Group();g.position.set(x,0,z);scene.add(g);
+ box(g,0,h/2,0,w,h,d,mat(color,.48,.25));
+ box(g,0,h+.1,0,w+.3,.2,d+.3,blue);
+ // front faces toward positive z
+ for(let y=1.4;y<h-0.5;y+=2.1){
+  for(let xx=-w/2+1;xx<w/2-.4;xx+=1.8){
+   box(g,xx,y,d/2+.025,1.05,1.1,.07,glass);
+  }
+ }
+ box(g,0,1.05,d/2+.08,1.25,2.1,.16,gold);
+ const sign=label(name,x,h+1,z+d/2+0.2);
+ buildings.push({name,x,z,w,d,h,kind,sign});
+ return g;
+}
+building('DATA MART',-17,-15,9,7,7,0x183c55,'data');
+building('FOOD CAFE',17,-15,8,7,5,0x70432f,'food');
+building('WORK OFFICE',-17,15,9,7,9,0x244b60,'work');
+building('DIGITAL HOME',15,15,9,8,5,0x315d68,'home');
+building('CAR GARAGE',0,-34,12,8,7,0x324359,'garage');
+building('CITIZEN HOUSE',32,8,8,8,5,0x625e75,'house');
+building('MOVIE HOUSE',31,-17,9,8,6,0x583e70,'movie');
+
+// Small environmental details
+for(let i=0;i<28;i++){
+ const x=(Math.random()-.5)*88,z=(Math.random()-.5)*88;
+ if(Math.abs(x)<9||Math.abs(z)<9)continue;
+ const trunk=box(scene,x,.65,z,.35,1.3,.35,mat(0x78533b));
+ const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(1.2,1),green);
+ crown.position.set(x,1.9,z);scene.add(crown);
+ trees.push({trunk,crown});
+}
+for(let i=0;i<18;i++){
+ const x=-42+i*4.8;
+ box(scene,x,.25,5,.15,.5,.15,gold);
+}
+
+// Player character
+const player=new THREE.Group();scene.add(player);
+const torso=box(player,0,1.25,0,.7,1.05,.4,blue);
+const head=new THREE.Mesh(new THREE.SphereGeometry(.27,10,8),white);
+head.position.y=2.02;player.add(head);
+const legs=[];
+for(const x of [-.2,.2])legs.push(box(player,x,.45,0,.23,.7,.28,dark));
+box(player,-.43,1.35,0,.18,.7,.2,white);
+player.position.set(0,0,0);
+
+// Bike
+const bike=new THREE.Group();scene.add(bike);
+const wheelMat=mat(0x101820,.6,.3);
+function wheel(parent,x,z){
+ const w=new THREE.Mesh(new THREE.TorusGeometry(.38,.07,6,14),wheelMat);
+ w.rotation.y=Math.PI/2;w.position.set(x,.4,z);parent.add(w);
+}
+wheel(bike,-.6,0);wheel(bike,.6,0);
+box(bike,0,.75,0,1.1,.08,.08,gold);
+box(bike,0,.78,0,.08,.1,.7,blue);
+bike.visible=false;
+
+// Car
+const car=new THREE.Group();scene.add(car);
+box(car,0,.65,0,2.1,.7,3.5,mat(0x118cae,.25,.4));
+box(car,0,1.2,-.15,1.6,.55,1.5,glass);
+for(const x of [-.9,.9])for(const z of [-1,1]){
+ const w=new THREE.Mesh(new THREE.CylinderGeometry(.35,.35,.2,12),wheelMat);
+ w.rotation.z=Math.PI/2;w.position.set(x,.35,z);car.add(w);
+}
+car.position.set(3,0,-35);car.visible=false;
+
+// NPCs with individual roles and routines
+function makeNPC(name,role,x,z,color,route){
+ const g=new THREE.Group();scene.add(g);
+ box(g,0,1.05,0,.55,.9,.35,mat(color));
+ const h=new THREE.Mesh(new THREE.SphereGeometry(.23,9,8),white);
+ h.position.y=1.72;g.add(h);
+ box(g,0,1.4,.22,.42,.13,.08,gold);
+ g.position.set(x,0,z);
+ const npc={name,role,g,route,step:0,wait:Math.random()*3,
+ homeX:x,homeZ:z,workX:x,workZ:z};
+ npcs.push(npc);return npc;
+}
+makeNPC('Asha','Shopkeeper',-17,-9,0x8a62d8,[[-17,-9],[-15,-9]]);
+makeNPC('Ravi','Worker',-17,10,0xefa64b,[[-17,10],[-14,10],[-14,7]]);
+makeNPC('Mira','Citizen',15,22,0x4ec5a0,[[15,22],[23,22],[23,15],[15,15]]);
+makeNPC('Dev','Worker',-23,18,0xe66c62,[[-23,18],[-20,18],[-20,12]]);
+makeNPC('Neel','Citizen',26,2,0x6197ed,[[26,2],[26,10],[20,10],[20,2]]);
+makeNPC('Tara','Shopkeeper',17,-9,0xed77b5,[[17,-9],[19,-9]]);
+makeNPC('Arun','Worker',-5,8,0x77c9e8,[[-5,8],[-5,12],[-10,12]]);
+makeNPC('Isha','Citizen',-28,-5,0xb5cf59,[[-28,-5],[-28,2],[-22,2]]);
+function nearest(){
+ let best=null,dist=5;
+ for(const n of npcs){
+  const d=Math.hypot(n.g.position.x-player.position.x,n.g.position.z-player.position.z);
+  if(d<dist){dist=d;best=n}
+ }
+ for(const b of buildings){
+  const d=Math.hypot(b.x-player.position.x,b.z-player.position.z);
+  if(d<dist){dist=d;best={...b,distance:d,isBuilding:true}}
+ }
+ if(Math.hypot(bike.position.x-player.position.x,bike.position.z-player.position.z)<3)
+  best={name:'Bicycle',kind:'bike',isBuilding:true};
+ if(Math.hypot(car.position.x-player.position.x,car.position.z-player.position.z)<4)
+  best={name:'Car',kind:'car',isBuilding:true};
+ return best;
+}
+function say(t){$('message').textContent=t}
+function hud(){
+ $('data').textContent=Math.floor(data);
+ $('coins').textContent=coins;
+ $('food').textContent=Math.floor(food);
+ $('water').textContent=Math.floor(water);
+ $('place').textContent=inside?'HOME':ride?'RIDE':'CITY';
+}
+function save(){
+ try{
+  localStorage.setItem('dsw_save',JSON.stringify({data,coins,food,water,
+   owned,inventory,totalDistance,rideSeconds}));
+ }catch(e){}
+}
+function load(){
+ try{
+  const s=JSON.parse(localStorage.getItem('dsw_save')||'null');
+  if(!s)return;
+  data=s.data??1024;coins=s.coins??0;food=s.food??100;water=s.water??100;
+  Object.assign(owned,s.owned||{});
+  inventory=s.inventory||['Phone'];
+  totalDistance=s.totalDistance||0;rideSeconds=s.rideSeconds||0;
+ }catch(e){}
+}
+function startGame(){
+ $('overlay').classList.add('hidden');
+ running=true;last=performance.now();say('City में जाएँ और NPC से काम लें।');
+}
+window.chooseMission=function(){
+ if(mission){say('पहले मौजूदा मिशन पूरा करें।');return}
+ if(data<5){say('डेटा कम है। Data Mart के पास जाकर डेटा खरीदें।');return}
+ const options=[
+  {name:'CITY RUN',desc:'शहर में 100 मीटर दौड़ें',type:'run',goal:100,reward:100},
+  {name:'CYCLING',desc:'साइकिल पर 30 सेकंड चलाएँ',type:'cycle',goal:30,reward:75},
+  {name:'DELIVERY',desc:'Worker NPC के पास जाकर बात करें',type:'talk',goal:1,reward:65},
+  {name:'CITY EXPLORER',desc:'शहर में 50 मीटर चलें',type:'walk',goal:50,reward:50}
+ ];
+ const m=options[Math.floor(Math.random()*options.length)];
+ mission={...m,start:performance.now()/1000,progress:0};
+ missionProgress=0;
+ $('mt').textContent=m.name+' — '+m.reward+' Coins';
+ $('progress').textContent=m.desc;
+ say('नया मिशन: '+m.desc);
+};
+function finishMission(){
+ if(!mission)return;
+ coins+=mission.reward;
+ say('मिशन पूरा! +'+mission.reward+' कॉइन मिले।');
+ mission=null;missionProgress=0;hud();save();
+ $('mt').textContent='मिशन चुनें';
+ $('progress').textContent='सफलता पर ही कॉइन मिलेंगे।';
+}
+function updateMission(dt,moved){
+ if(!mission)return;
+ if(mission.type==='run'&&moved&&!ride)mission.progress+=moved;
+ if(mission.type==='walk'&&moved)mission.progress+=moved;
+ if(mission.type==='cycle'&&ride)mission.progress+=dt;
+ if(mission.type==='talk'&&mission.progress>=1)return;
+ $('progress').textContent=mission.desc+' ('+
+ Math.floor(mission.progress)+' / '+mission.goal+')';
+ if(mission.progress>=mission.goal)finishMission();
+}
+
+// Shop and building interactions
+window.interact=function(){
+ if(!running)return;
+ if(inside){
+  showInteriorMenu();return;
+ }
+ const n=nearest();
+ if(!n){say('किसी बिल्डिंग या NPC के पास जाएँ।');return}
+ if(!n.isBuilding){
+  if(n.role==='Worker'){
+   missionProgress++;
+   if(mission&&mission.type==='talk'){mission.progress=1;finishMission()}
+   else say(n.name+': शहर में काम चाहिए? Mission चुनें या मेरे पास उपलब्ध काम देखें।');
+   if(!mission)openWorkerMenu(n);
+  }else if(n.role==='Shopkeeper'){
+   say(n.name+': दुकान सामने है। बिल्डिंग के दरवाजे के पास जाकर INTERACT करें।');
+  }else say(n.name+': नमस्ते! शहर में घूमने के लिए अच्छी जगहें हैं।');
+  return;
+ }
+ if(n.kind==='data'){openShop('data');return}
+ if(n.kind==='food'){openShop('food');return}
+ if(n.kind==='work'){openWorkerMenu();return}
+ if(n.kind==='home'||n.kind==='house'){enterHome();return}
+ if(n.kind==='garage'){openShop('garage');return}
+ if(n.kind==='movie'){openShop('movie');return}
+ if(n.kind==='bike'){toggleRide();return}
+ if(n.kind==='car'){toggleCar();return}
+};
+function openWorkerMenu(npc){
+ menu('💼 Worker Job Board',
+  '<p>डिजिटल काम करें। कॉइन केवल काम पूरा होने पर मिलेंगे।</p>'+
+  '<p>• 50 सेकंड Cycling Mission: 75 Coins</p>'+
+  '<p>• 100 मीटर City Run: 100 Coins</p>'+
+  '<p>• 50 मीटर Walk: 50 Coins</p>'+
+  '<p>• NPC Delivery: 65 Coins</p>'+
+  '<button onclick="chooseMission();closeMenu()">START MISSION</button>');
+}
+function openShop(type){
+ let html='';
+ if(type==='data'){
+  html='<p>यहाँ केवल डेटा खरीदा जाता है। आपका निजी डेटा कहीं बेचा नहीं जाता।</p>'+
+  '<div id="items"><button onclick="purchaseData(100)">100 KB — 100 Coins</button>'+
+  '<button onclick="purchaseData(500)">500 KB — 500 Coins</button>'+
+  '<button onclick="purchaseData(1024)">1 MB — 1,024 Coins</button></div>';
+ }
+ if(type==='food'){
+  html='<div id="items"><button onclick="buyItem(\'Meal\',20,\'food\')">Meal 🍲 — 20</button>'+
+  '<button onclick="buyItem(\'Water\',10,\'water\')">Water 💧 — 10</button>'+
+  '<button onclick="buyItem(\'Snack\',8,\'food\')">Snack 🍎 — 8</button></div>';
+ }
+ if(type==='garage'){
+  html='<p>अपना वाहन खरीदें।</p><button onclick="buyVehicle()">Buy Car — 500 Coins</button>';
+ }
+ if(type==='movie'){
+  html='<p>Movie Room 🎬</p><p>टिकट खरीदकर स्क्रीन पर digital movie animation देखें।</p>'+
+  '<button onclick="watchMovie()">Buy Ticket — 15 Coins</button>';
+ }
+ menu(({data:'📶 DATA MART',food:'🍲 FOOD CAFE',garage:'🚘 CAR GARAGE',movie:'🎬 MOVIE HOUSE'})[type],html);
+}
+function menu(title,html){
+ $('overlay').classList.remove('hidden');
+ $('card').innerHTML='<h2>'+title+'</h2>'+html+
+ '<p class="small">खरीदारी के लिए पर्याप्त कॉइन चाहिए।</p>'+
+ '<button onclick="closeMenu()" style="width:100%">CLOSE</button>';
+}
+window.closeMenu=function(){$('overlay').classList.add('hidden')};
+window.toggleMenu=function(){
+ menu('📱 DIGITAL LIFE',
+ '<p>Data: '+Math.floor(data)+' KB</p><p>Coins: '+coins+'</p>'+
+ '<p>Inventory: '+inventory.join(', ')+'</p>'+
+ '<button onclick="chooseMission();closeMenu()">MISSIONS</button>'+
+ '<button onclick="save();say(\'Game saved\');closeMenu()">SAVE GAME</button>'+
+ '<button onclick="buyDataPrompt();closeMenu()">DATA HELP</button>');
+};
+window.buyDataPrompt=function(){say('Data Mart की बिल्डिंग में जाएँ।')};
+window.purchaseData=function(kb){
+ if(coins<kb){say('इतने कॉइन नहीं हैं!');return}
+ coins-=kb;data+=kb;hud();save();say(kb+' KB डेटा खरीदा गया।');
+};
+window.buyItem=function(item,cost,type){
+ if(coins<cost){say('कॉइन कम हैं। पहले काम करें।');return}
+ coins-=cost;inventory.push(item);
+ if(type==='food')food=Math.min(100,food+40);
+ if(type==='water')water=Math.min(100,water+50);
+ hud();save();say(item+' खरीदा।');closeMenu();
+};
+window.buyVehicle=function(){
+ if(owned.car){say('आपके पास पहले से कार है।');return}
+ if(coins<500){say('कार के लिए 500 कॉइन चाहिए।');return}
+ coins-=500;owned.car=true;car.visible=true;
+ inventory.push('Car');hud();save();say('कार खरीदी! Garage के बाहर जाकर INTERACT करें।');closeMenu();
+};
+window.watchMovie=function(){
+ if(coins<15){say('Movie ticket के लिए 15 कॉइन चाहिए।');return}
+ coins-=15;hud();closeMenu();
+ menu('🎬 DIGITAL CINEMA',
+ '<div style="background:#02070c;padding:25px;text-align:center;border:2px solid #20c9ff">'+
+ '<h2>FUTURE CITY</h2><p>✦ ✧ ✦</p><p>Digital cinema preview</p></div>'+
+ '<p>आपकी टिकट सफलतापूर्वक खरीदी गई।</p>');
+};
+function enterHome(){
+ inside=true;player.position.set(15,0,18);
+ // Simple detailed interior: living room, furniture and TV
+ box(scene,15,.05,18,12,.12,10,mat(0x6c7785));
+ box(scene,15,1,13,12,2,.2,dark);
+ box(scene,12,.6,16,3,1,1.2,mat(0x577e91));
+ box(scene,15,.7,16,2.6,.5,1.1,mat(0x447085));
+ box(scene,15,1.7,13.1,2.4,1.4,.15,blue);
+ box(scene,19,.5,18,1.5,1,.9,mat(0x5c402d));
+ box(scene,19,1.1,18,1.6,.12,.95,gold);
+ box(scene,12,.8,20,1.2,1.5,1,mat(0x4c6c75));
+ $('place').textContent='HOME';say('घर के अंदर आए। Furniture और TV इस्तेमाल कर सकते हैं।');
+ hud();
+}
+function showInteriorMenu(){
+ menu('🏠 HOME',
+ '<p>घर में आराम करें, टीवी देखें या बाहर जाएँ।</p>'+
+ '<button onclick="restHome()">REST / SLEEP</button>'+
+ '<button onclick="homeTV()">WATCH TV</button>'+
+ '<button onclick="leaveHome()">EXIT HOME</button>');
+}
+window.restHome=function(){
+ food=Math.max(0,food-5);water=Math.max(0,water-5);
+ say('आपने आराम किया। खाना और पानी चेक करें।');hud();closeMenu();
+};
+window.homeTV=function(){
+ if(data<2){say('TV चलाने के लिए डेटा चाहिए।');return}
+ data-=2;hud();
+ menu('📺 HOME TV','<div style="background:#02080f;color:#5ff;padding:24px;text-align:center">'+
+ '<h2>Digital TV</h2><p>NOW PLAYING</p><p>Future City News</p></div>');
+};
+window.leaveHome=function(){
+ inside=false;player.position.set(15,0,20);hud();closeMenu();
+ say('आप वापस शहर में आ गए।');
+};
+window.toggleRide=function(){
+ if(inside){say('पहले घर से बाहर निकलें।');return}
+ if(ride){ride=false;bike.visible=false;player.visible=true;say('आप साइकिल से उतर गए।');return}
+ if(Math.hypot(player.position.x-0,player.position.z-5)>100){
+  // Bicycle can be used at home or near the bike stand
+ }
+ ride=true;bike.visible=true;player.visible=false;
+ bike.position.copy(player.position);say('Cycling शुरू! 50 सेकंड तक चलें।');
+};
+window.toggleCar=function(){
+ if(!owned.car){say('पहले Car Garage से कार खरीदें।');return}
+ ride=!ride;bike.visible=false;player.visible=!ride;car.visible=ride;
+ if(ride)car.position.copy(player.position);
+ say(ride?'आप कार चला रहे हैं।':'आप कार से उतर गए।');
+};
+
+// Touch joystick
+const stick=$('stick'),nub=$('nub');
+function stickMove(e){
+ const r=stick.getBoundingClientRect();
+ const cx=r.left+r.width/2,cy=r.top+r.height/2;
+ const dx=e.clientX-cx,dy=e.clientY-cy;
+ const lim=r.width*.34,mag=Math.hypot(dx,dy)||1;
+ const x=dx/mag*Math.min(mag,lim),y=dy/mag*Math.min(mag,lim);
+ nub.style.transform='translate('+x+'px,'+y+'px)';
+ moveX=x/lim;moveY=y/lim;
+}
+stick.addEventListener('pointerdown',e=>{
+ stick.setPointerCapture(e.pointerId);stickMove(e);
+});
+stick.addEventListener('pointermove',e=>{
+ if(e.buttons)stickMove(e);
+});
+function releaseStick(){moveX=0;moveY=0;nub.style.transform='translate(0,0)'}
+stick.addEventListener('pointerup',releaseStick);
+stick.addEventListener('pointercancel',releaseStick);
+
+renderer.domElement.addEventListener('pointerdown',e=>{
+ if(e.clientX<145&&e.clientY>innerHeight-150)return;
+ drag=true;px=e.clientX;py=e.clientY;
+});
+addEventListener('pointerup',()=>drag=false);
+addEventListener('pointermove',e=>{
+ if(!drag||!running)return;
+ yaw-=(e.clientX-px)*.005;
+ pitch=Math.max(-.05,Math.min(.8,pitch+(e.clientY-py)*.003));
+ px=e.clientX;py=e.clientY;
+});
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+window.jump=function(){if(jumping===0)jumping=5};
+
+function animate(now){
+ requestAnimationFrame(animate);
+ const dt=Math.min((now-last)/1000,.05);last=now;
+ if(!running){renderer.render(scene,camera);return}
+ clock+=dt;saveTick+=dt;
+ // Data costs 1 KB per second. When empty, movement and jobs stop.
+ if(data>0)data=Math.max(0,data-dt);
+ else if(!inside){
+  say('DATA ZERO! Data Mart से डेटा खरीदें।');
+ }
+ // Hunger and thirst are gradual survival stats
+ food=Math.max(0,food-dt*.018);
+ water=Math.max(0,water-dt*.025);
+ const forward=(keys.w||keys.arrowup?1:0)+(moveY<-.15?-moveY:0)-
+ (keys.s||keys.arrowdown?1:0)-(moveY>.15?moveY:0);
+ const side=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0)+moveX;
+ let moved=0;
+ if(data>0&&!inside){
+  const old=player.position.clone();
+  const speed=(ride?8:5)*dt;
+  player.position.x+=(Math.sin(yaw)*forward+Math.cos(yaw)*side)*speed;
+  player.position.z+=(-Math.cos(yaw)*forward+Math.sin(yaw)*side)*speed;
+  player.position.x=THREE.MathUtils.clamp(player.position.x,-47,47);
+  player.position.z=THREE.MathUtils.clamp(player.position.z,-47,47);
+  moved=player.position.distanceTo(old);
+  totalDistance+=moved;
+  if(ride)rideSeconds+=dt;
+  if(jumping>0){player.position.y=Math.sin((5-jumping)*Math.PI/5)*1.4;jumping-=dt*5}
+  else player.position.y=0;
+  if(moved>.001)player.rotation.y=Math.atan2(
+   player.position.x-old.x,player.position.z-old.z);
+  if(ride)bike.position.copy(player.position);
+  if(owned.car&&ride)car.position.copy(player.position);
+  updateMission(dt,moved);
+ }
+ // NPC daily routines and walking between work and home
+ for(const n of npcs){
+  n.wait-=dt;
+  if(n.wait<=0){
+   const p=n.route[n.step%n.route.length];
+   const dx=p[0]-n.g.position.x,dz=p[1]-n.g.position.z;
+   const dist=Math.hypot(dx,dz);
+   if(dist<.25){n.step++;n.wait=1+Math.random()*2}
+   else{
+    const step=Math.min(dist,dt*.65);
+    n.g.position.x+=dx/dist*step;n.g.position.z+=dz/dist*step;
+    n.g.rotation.y=Math.atan2(dx,dz);
+   }
+  }
+ }
+ // Third-person smooth camera
+ const targetPos=inside
+ ?new THREE.Vector3(15,4,25)
+ :new THREE.Vector3(
+ player.position.x+Math.sin(yaw)*8,
+ player.position.y+3.4+pitch*2,
+ player.position.z+Math.cos(yaw)*8);
+ camera.position.lerp(targetPos,1-Math.exp(-dt*5));
+ camera.lookAt(player.position.x,player.position.y+1.2,player.position.z);
+ // Keep NPCs and player visible in the city
+ if(saveTick>10){saveTick=0;save();hud()}
+ if(data<=0)$('progress').textContent='डेटा खरीदें: Data Mart';
+ hud();
+ renderer.render(scene,camera);
+}
+load();hud();requestAnimationFrame(animate);
+addEventListener('resize',()=>{
+ camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+})();
+</script>
+</body>
+</html>
